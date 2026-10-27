@@ -1,0 +1,261 @@
+{
+  "name": "LLM-Kompass · Datenaktualisierung",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## LLM-Kompass · Datenaktualisierung\n\nHolt wöchentlich die Modelldaten aus **Artificial Analysis** (Free API) und dem **Arena Leaderboard Dataset** (Hugging Face, CC BY 4.0), führt sie zusammen und aktualisiert die Notion-Datenbank **LLM-Kompass · Modelldaten**. Der LLM-Kompass liest diese Datenbank automatisch.\n\n**Einrichtung**\n1. Credential *Header Auth* anlegen: Name `x-api-key`, Wert = eigener Artificial-Analysis-Schlüssel.\n2. Credential *Notion API* anlegen und die Integration in Notion mit der Datenbank verbinden (••• → Verbindungen).\n3. Einmal manuell testen, dann aktivieren.\n\n**Regeln:** Spalte *Hinweis* und manuell gepflegte Preise werden nie überschrieben. Nicht mehr gefundene Modelle werden auf *Aktiv = nein* gesetzt, nicht gelöscht. Quellen bei Veröffentlichung nennen.",
+        "height": 520,
+        "width": 420,
+        "color": 5
+      },
+      "id": "351e5f8d-6a12-4550-8ded-cf96fb19a7db",
+      "name": "Hinweise",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -520,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 6,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "230aa203-36e4-4172-beab-982897ecd33d",
+      "name": "Montags 6 Uhr",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "c8350b93-b74b-4720-9326-32d3b044d5a4",
+      "name": "Manuell starten",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://artificialanalysis.ai/api/v2/data/llms/models",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "db0b36cf-4458-421e-84cf-e93734f31394",
+      "name": "Artificial Analysis – LLMs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Artificial Analysis API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://datasets-server.huggingface.co/filter?dataset=lmarena-ai%2Fleaderboard-dataset&config=text_style_control&split=latest&where=%22category%22%3D%27overall%27&offset=0&length=100",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "1a27aaef-6ff2-4220-a56e-f103a0287259",
+      "name": "Arena – Text (Style Control)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": {
+          "__rl": true,
+          "value": "f88e12ef13ba4246950a944e13637bde",
+          "mode": "id"
+        },
+        "returnAll": true,
+        "simple": false,
+        "options": {}
+      },
+      "id": "5891c344-f0ad-4ab8-ae85-42c7d150df3b",
+      "name": "Notion – bestehende Einträge",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        740,
+        100
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "notionApi": {
+          "id": "",
+          "name": "Notion LLM-Kompass"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// LLM-Kompass: Daten aus Artificial Analysis und Arena zusammenführen und mit Notion abgleichen\nconst DB_ID = 'f88e12ef13ba4246950a944e13637bde';\nconst MAX_AA = 40;      // beste Modelle nach Intelligence Index\nconst MAX_ARENA = 40;   // beste Modelle nach Arena-Score\n// Manuelle Zuordnung, falls Namen in beiden Quellen unterschiedlich geschrieben werden: 'quellschluessel': 'zielschluessel'\nconst ALIAS = {};\n\nconst today = new Date().toISOString().slice(0, 10);\nconst norm = s => { const k = String(s || '').toLowerCase().replace(/\\([^)]*\\)/g, '').replace(/[^a-z0-9]/g, ''); return ALIAS[k] || k; };\nconst clean = s => String(s || '').replace(/\\s*\\([^)]*\\)\\s*/g, ' ').replace(/\\s+/g, ' ').trim();\nconst num = v => { if (v === null || v === undefined || v === '') return null; const n = Number(v); return isFinite(n) ? n : null; };\nconst pick = (o, paths) => { for (const p of paths) { const v = p.split('.').reduce((a, k) => (a == null ? undefined : a[k]), o); if (v !== undefined && v !== null && v !== '') return v; } return null; };\nconst round = (v, d) => (v == null ? null : Math.round(v * 10 ** d) / 10 ** d);\n\n// 1. Artificial Analysis (Free API)\nconst aaRaw = $('Artificial Analysis – LLMs').first().json;\nconst aaList = Array.isArray(aaRaw.data) ? aaRaw.data : Array.isArray(aaRaw.models) ? aaRaw.models : Array.isArray(aaRaw) ? aaRaw : [];\nif (!aaList.length) throw new Error('Artificial Analysis: keine Modelle erhalten. API-Schlüssel und Antwortformat prüfen.');\nconst aa = new Map();\nfor (const m of aaList) {\n  const name = pick(m, ['name', 'model_name', 'slug']);\n  const key = norm(name);\n  if (!key) continue;\n  const rec = {\n    name: clean(name),\n    creator: pick(m, ['model_creator.name', 'creator.name', 'model_creator', 'creator']),\n    intel: num(pick(m, ['evaluations.artificial_analysis_intelligence_index', 'indices.intelligence', 'intelligence_index'])),\n    coding: num(pick(m, ['evaluations.artificial_analysis_coding_index', 'indices.coding', 'coding_index'])),\n    agentic: num(pick(m, ['evaluations.artificial_analysis_agentic_index', 'indices.agentic', 'agentic_index'])),\n    pin: num(pick(m, ['pricing.price_1m_input_tokens', 'pricing.input', 'price_1m_input_tokens'])),\n    pout: num(pick(m, ['pricing.price_1m_output_tokens', 'pricing.output', 'price_1m_output_tokens'])),\n    speed: num(pick(m, ['median_output_tokens_per_second', 'performance.median_output_tokens_per_second', 'output_speed'])),\n  };\n  const prev = aa.get(key);\n  if (!prev || (rec.intel ?? -1) > (prev.intel ?? -1)) aa.set(key, rec);\n}\n\n// 2. Arena Leaderboard Dataset (Hugging Face, CC BY 4.0)\nconst arRaw = $('Arena – Text (Style Control)').first().json;\nconst arRows = (arRaw.rows || []).map(r => r.row || r);\nconst arena = new Map();\nlet arenaDate = '';\nfor (const r of arRows) {\n  if (r.category && r.category !== 'overall') continue;\n  const key = norm(r.model_name);\n  const rating = num(r.rating);\n  if (!key || rating == null) continue;\n  arenaDate = r.leaderboard_publish_date || arenaDate;\n  const prev = arena.get(key);\n  if (!prev || rating > prev.rating) arena.set(key, { name: clean(r.model_name), org: r.organization, license: r.license, rating });\n}\nif (!arena.size) throw new Error('Arena: keine Daten erhalten. Datensatz-Abfrage prüfen.');\n\n// 3. Auswahl: Spitzenfeld aus beiden Quellen\nconst topAA = [...aa.entries()].filter(([, v]) => v.intel != null).sort((a, b) => b[1].intel - a[1].intel).slice(0, MAX_AA).map(([k]) => k);\nconst topAR = [...arena.entries()].sort((a, b) => b[1].rating - a[1].rating).slice(0, MAX_ARENA).map(([k]) => k);\nconst keys = [...new Set([...topAA, ...topAR])];\n\n// 4. Bestehende Notion-Einträge\nconst existing = new Map();\nfor (const it of $input.all()) {\n  const j = it.json || {};\n  if (!j.id || !j.properties) continue;\n  const p = j.properties;\n  const keyTxt = (p['Schlüssel']?.rich_text || []).map(t => t.plain_text).join('');\n  const title = (p['Modell']?.title || []).map(t => t.plain_text).join('');\n  existing.set(keyTxt || norm(title), { id: j.id, aktiv: p['Aktiv']?.checkbox === true });\n}\n\nconst origin = s => {\n  const o = String(s || '').toLowerCase();\n  if (/(anthropic|openai|google|meta|xai|spacex|amazon|microsoft|nvidia|ibm|thinky|thinking machines|cohere|ai2|inception)/.test(o)) return 'USA';\n  if (/(xiaomi|alibaba|qwen|zai|z\\.ai|zhipu|deepseek|moonshot|kimi|tencent|minimax|stepfun|baidu|bytedance|meituan|ant group|inclusion)/.test(o)) return 'China';\n  if (/(mistral|aleph|black forest)/.test(o)) return 'EU';\n  return 'Andere';\n};\nconst openness = lic => {\n  const l = String(lic || '').toLowerCase();\n  if (!l) return null;\n  if (l.includes('propriet')) return 0;\n  if (/^(mit|apache)/.test(l)) return 1;\n  return 0.7;\n};\nconst rt = v => ({ rich_text: [{ type: 'text', text: { content: String(v).slice(0, 1900) } }] });\nconst setNum = (props, name, v) => { if (v != null) props[name] = { number: v }; };\n\nconst out = [];\nfor (const key of keys) {\n  const a = aa.get(key), r = arena.get(key);\n  const props = {};\n  const name = a?.name || r?.name;\n  const creator = r?.org || a?.creator;\n  props['Schlüssel'] = rt(key);\n  if (creator) props['Anbieter'] = rt(String(creator).charAt(0).toUpperCase() + String(creator).slice(1));\n  if (creator) props['Herkunft'] = { select: { name: origin(creator) } };\n  if (r?.license) { props['Lizenz'] = rt(r.license); props['Offen'] = { number: openness(r.license) }; }\n  setNum(props, 'Intelligenz', round(a?.intel, 1));\n  setNum(props, 'Coding', round(a?.coding, 1));\n  setNum(props, 'Agentik', round(a?.agentic, 1));\n  setNum(props, 'Arena', round(r?.rating, 0));\n  setNum(props, 'Tempo', round(a?.speed, 0));\n  setNum(props, 'Preis In', a?.pin);\n  setNum(props, 'Preis Out', a?.pout);\n  props['Quelle'] = rt([a ? 'Artificial Analysis' : null, r ? 'Arena ' + arenaDate : null].filter(Boolean).join(' + '));\n  props['Stand'] = { date: { start: today } };\n  props['Aktiv'] = { checkbox: true };\n\n  const ex = existing.get(key);\n  if (ex) {\n    out.push({ json: { action: 'update', Modell: name, method: 'PATCH', url: 'https://api.notion.com/v1/pages/' + ex.id, body: { properties: props } } });\n  } else {\n    props['Modell'] = { title: [{ type: 'text', text: { content: name } }] };\n    out.push({ json: { action: 'create', Modell: name, method: 'POST', url: 'https://api.notion.com/v1/pages', body: { parent: { database_id: DB_ID }, properties: props } } });\n  }\n}\n\n// 5. Nicht mehr gefundene Modelle deaktivieren (nicht löschen)\nfor (const [key, ex] of existing) {\n  if (!keys.includes(key) && ex.aktiv) {\n    out.push({ json: { action: 'deactivate', Modell: key, method: 'PATCH', url: 'https://api.notion.com/v1/pages/' + ex.id, body: { properties: { 'Aktiv': { checkbox: false } } } } });\n  }\n}\nreturn out;\n"
+      },
+      "id": "2cd65d8d-dc81-477c-a42c-e28d04eaaf48",
+      "name": "Zusammenführen & abgleichen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 2,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "23a482d4-0bdf-447d-a8ee-6593b1ac44a6",
+      "name": "Notion – schreiben",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "notionApi": {
+          "id": "",
+          "name": "Notion LLM-Kompass"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Montags 6 Uhr": {
+      "main": [
+        [
+          {
+            "node": "Artificial Analysis – LLMs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manuell starten": {
+      "main": [
+        [
+          {
+            "node": "Artificial Analysis – LLMs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Artificial Analysis – LLMs": {
+      "main": [
+        [
+          {
+            "node": "Arena – Text (Style Control)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Arena – Text (Style Control)": {
+      "main": [
+        [
+          {
+            "node": "Notion – bestehende Einträge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notion – bestehende Einträge": {
+      "main": [
+        [
+          {
+            "node": "Zusammenführen & abgleichen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zusammenführen & abgleichen": {
+      "main": [
+        [
+          {
+            "node": "Notion – schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin"
+  },
+  "pinData": {},
+  "active": false,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

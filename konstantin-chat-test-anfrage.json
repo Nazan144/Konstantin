@@ -1,0 +1,9 @@
+{
+  "system": "Du bist der KI-Assistent von Konstantin · Dein KI-Kompass. (Im echten Betrieb sendet die Webseite hier das gesamte Kompass-Wissen mit.)",
+  "messages": [
+    {
+      "role": "user",
+      "content": "SaaS oder PaaS für einen internen Wissensassistenten?"
+    }
+  ]
+}

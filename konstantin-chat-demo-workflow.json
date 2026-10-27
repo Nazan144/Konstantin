@@ -1,0 +1,98 @@
+{
+  "name": "Konstantin · Chat-Demo",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Konstantin · Chat-Demo\n\nTest-Endpunkt **ohne KI und ohne Kosten**. Prüft, ob Webseite, Button, Animation, Links und Fehleranzeige funktionieren.\n\n1. Importieren und aktivieren.\n2. Production URL des Webhooks in konstantin.html bei `KONSTANTIN_CHAT_ENDPOINT` eintragen.\n3. Testfragen: „Bewerbung“, „SaaS oder PaaS“, „Abo“, „Training ChatGPT“, „Fehler“ (zeigt die Fehleranzeige).\n\nDanach den echten Workflow „Konstantin · Chat-Endpunkt“ aktivieren und dessen URL eintragen.",
+        "height": 420,
+        "width": 400,
+        "color": 4
+      },
+      "id": "f7358da0-e7e5-47fe-8209-d015aecbdd14",
+      "name": "Hinweise",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "konstantin-chat-demo",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "16335e3e-4671-4f76-ac8f-32cc65109ca3",
+      "name": "Webhook Demo",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "5a8a9a48-4b41-4991-bfab-d17ef21a4cff"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Demo-Antworten ohne KI: testet Verbindung, Button, Animation und Links – kostenlos\nconst b = $json.body || {};\nconst msgs = Array.isArray(b.messages) ? b.messages : [];\nconst last = msgs.filter(m => m && m.role === 'user').pop();\nconst q = String(last && last.content || '').toLowerCase();\nconst demo = '\\n\\n(Demo-Modus: Diese Antwort kommt aus dem Test-Workflow, nicht von der KI.)';\nlet reply;\nif (!q) {\n  reply = 'Ich habe keine Frage erhalten. Bitte schreiben Sie etwas in das Eingabefeld.';\n} else if (q.includes('bewerbung')) {\n  reply = 'Für eine Bewerbung reicht meist die **Gratis-Version** eines Chat-Assistenten.\\n\\n- Keine Adresse oder Geburtsdatum eingeben\\n- Erfundene Qualifikationen streichen\\n\\nVorlagen finden Sie im [[aufgaben]].';\n} else if (q.includes('saas') || q.includes('paas') || q.includes('iaas') || q.includes('cloud')) {\n  reply = 'Ob SaaS, PaaS oder IaaS passt, hängt vor allem von Schutzbedarf, Anpassungsbedarf und eigener IT-Kompetenz ab. Für einen internen Wissensassistenten mit eigenen Dokumenten ist oft **PaaS mit RAG** sinnvoll.\\n\\nPrüfen Sie Ihr Vorhaben in der [[entscheid]].';\n} else if (q.includes('abo') || q.includes('kosten') || q.includes('preis')) {\n  reply = 'Bei seltener Nutzung reicht die Gratis-Version. Ab täglicher Nutzung oder für lange Dokumente lohnt sich meist ein Abo um rund 20 € im Monat.\\n\\nMehr dazu unter [[privat]] und im [[rechner]].';\n} else if (q.includes('training') || q.includes('datenschutz') || q.includes('chatgpt')) {\n  reply = 'Bei ChatGPT schalten Sie unter Einstellungen → Datenkontrollen die Option „Das Modell für alle verbessern“ aus.\\n\\nEinen Überblick über alle Dienste gibt die [[ampel]].';\n} else if (q.includes('fehler')) {\n  // Zum Testen der Fehleranzeige: Frage mit dem Wort „Fehler“ senden\n  return [{ json: { reply: '' } }];\n} else {\n  reply = 'Danke für Ihre Frage: „' + String(last.content).slice(0, 120) + '“. Die Verbindung zum Chat-Endpunkt funktioniert.\\n\\nTesten Sie auch die Beispielfragen oder schauen Sie ins [[glossar]].';\n}\nreturn [{ json: { reply: reply + demo } }];"
+      },
+      "id": "e4c559ed-a8db-4536-89c5-71e6f63b75ef",
+      "name": "Demo-Antwort",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { reply: $json.reply } }}",
+        "options": {}
+      },
+      "id": "b09143b4-d0a0-448e-97a3-41ab6426d967",
+      "name": "Antwort senden",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Demo": {
+      "main": [
+        [
+          {
+            "node": "Demo-Antwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Demo-Antwort": {
+      "main": [
+        [
+          {
+            "node": "Antwort senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin"
+  },
+  "pinData": {},
+  "active": false
+}

@@ -1,0 +1,171 @@
+{
+  "name": "Konstantin · Chat-Endpunkt",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Konstantin · Chat-Endpunkt\n\nBackend für „Frag Konstantin“ auf der eigenen Webseite.\n\n1. Credential *Header Auth*: Name `x-api-key`, Wert = Anthropic-API-Schlüssel.\n2. Im Webhook unter Optionen *Allowed Origins* die eigene Domain eintragen (statt `*`).\n3. Workflow aktivieren und die Produktions-URL des Webhooks in konstantin.html bei `KONSTANTIN_CHAT_ENDPOINT` eintragen.\n4. In der Anthropic-Konsole ein monatliches Ausgabenlimit setzen.\n\nModell: claude-haiku-5-5 (günstig und schnell), max. 800 Tokens je Antwort, Verlauf auf 10 Nachrichten begrenzt.",
+        "height": 440,
+        "width": 400,
+        "color": 5
+      },
+      "id": "66961b6b-29f3-4b89-827c-8fbdb8e4eeab",
+      "name": "Hinweise",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "konstantin-chat",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "61f1e54c-c481-4f6d-8169-7044ef0d881f",
+      "name": "Webhook Chat",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "96836b2d-1573-4378-b2bd-cddfa3271f31"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Eingaben prüfen und begrenzen (Schutz vor Missbrauch und Kosten)\nconst b = $json.body || {};\nconst system = String(b.system || '').slice(0, 30000);\nlet msgs = Array.isArray(b.messages) ? b.messages : [];\nmsgs = msgs.filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')\n  .slice(-10).map(m => ({ role: m.role, content: m.content.slice(0, 2000) }));\nwhile (msgs.length && msgs[0].role !== 'user') msgs.shift();\nif (!system || !msgs.length || msgs[msgs.length - 1].role !== 'user') throw new Error('Ungültige Anfrage');\nreturn [{ json: { model: 'claude-haiku-5-5', max_tokens: 800, system, messages: msgs } }];"
+      },
+      "id": "2a067267-0ec3-48a4-8b74-9e1b55bb6ddc",
+      "name": "Anfrage prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "f58d2ef5-29dc-4dfa-b319-afd283b0efd1",
+      "name": "Claude API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Anthropic API"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { reply: ($json.content || []).filter(c => c.type === 'text').map(c => c.text).join('\\n') } }}",
+        "options": {}
+      },
+      "id": "2198e350-5fc1-4dc5-9627-f57c38446ccd",
+      "name": "Antwort senden",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { reply: '' } }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "4058658f-1928-4ba9-b52c-9ea8a1eeb858",
+      "name": "Fehler melden",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        100
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Chat": {
+      "main": [
+        [
+          {
+            "node": "Anfrage prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anfrage prüfen": {
+      "main": [
+        [
+          {
+            "node": "Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude API": {
+      "main": [
+        [
+          {
+            "node": "Antwort senden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin"
+  },
+  "pinData": {},
+  "active": false
+}
